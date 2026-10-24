@@ -12,7 +12,7 @@ workflows:
     scripts:
       - name: Source and Xcode project
         script: |
-          unzip -o -q OmokScout_source.zip -d .
+          unzip -o -q omok_iphone_v01.zip -d .
           brew install xcodegen
           xcodegen generate --spec project.yml
       - name: Compile on iOS simulator
