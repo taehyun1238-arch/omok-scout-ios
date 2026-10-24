@@ -1,0 +1,64 @@
+# To run from an iPhone: create a GitHub repository and upload exactly two files:
+#   OmokScout_source.zip and codemagic.yaml
+# Both workflows unzip sources themselves. On signed builds, replace bundle IDs
+# and configure a matching App Group capability in Apple Developer portal.
+workflows:
+  omok-unsigned:
+    name: '01 · 컴파일 검사 (무료 서명 없음)'
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+    scripts:
+      - name: Source and Xcode project
+        script: |
+          unzip -o -q OmokScout_source.zip -d .
+          brew install xcodegen
+          xcodegen generate --spec project.yml
+      - name: Compile on iOS simulator
+        script: |
+          xcodebuild -project OmokScout.xcodeproj -scheme OmokScout \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build | tee /tmp/omok-build.log
+    artifacts:
+      - /tmp/omok-build.log
+  omok-signed:
+    name: '02 · 실기기 설치용 (Apple 유료 개발자 계정 필요)'
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: codemagic
+    environment:
+      xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.example.OmokScout
+      vars:
+        APP_BUNDLE_ID: 'com.example.OmokScout'
+        APP_GROUP_ID: 'group.com.example.OmokScout'
+    scripts:
+      - name: Extract project and configure IDs
+        script: |
+          unzip -o -q OmokScout_source.zip -d .
+          # Do not deploy with the example ID. Set your own unique bundle and App Group IDs.
+          if [ "$APP_BUNDLE_ID" = "com.example.OmokScout" ]; then
+            echo 'ERROR: APP_BUNDLE_ID must be changed in codemagic.yaml.' >&2
+            exit 2
+          fi
+          sed -i '' "s/com.example.OmokScout/$APP_BUNDLE_ID/g" project.yml
+          sed -i '' "s/group.com.example.OmokScout/$APP_GROUP_ID/g" Shared/Storage.swift App/App.entitlements Broadcast/Broadcast.entitlements
+          brew install xcodegen
+          xcodegen generate --spec project.yml
+      - name: Apply provisioning profiles
+        script: xcode-project use-profiles
+      - name: Build iOS IPA
+        script: |
+          xcode-project build-ipa --project "$CM_BUILD_DIR/OmokScout.xcodeproj" --scheme OmokScout
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
